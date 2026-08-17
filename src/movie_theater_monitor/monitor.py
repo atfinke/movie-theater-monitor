@@ -50,6 +50,16 @@ class MonitorState(BaseModel):
     showtimes: dict[str, ShowtimeRecord] = Field(default_factory=dict)
 
 
+def provider_datetime(ticketing_date: str) -> str:
+    """Convert the provider's 'YYYY-MM-DD+HH:MM' stamp into an ISO datetime string.
+
+    The provider's own ``date`` field carries a display label such as '6:00a', so
+    ``ticketingDate`` is the only showtime field that survives round-tripping.
+    """
+
+    return datetime.fromisoformat(ticketing_date.replace("+", " ")).isoformat()
+
+
 def matches_format(formats: Collection[str], format_substring: str) -> bool:
     """Return whether a showtime has a format containing the configured label."""
 

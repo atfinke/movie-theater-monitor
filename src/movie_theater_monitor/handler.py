@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 import boto3
 from botocore.exceptions import ClientError
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from movie_theater_monitor.monitor import (
     FilmFormat,
@@ -19,6 +19,7 @@ from movie_theater_monitor.monitor import (
     ShowtimeRecord,
     format_alert,
     matches_format,
+    provider_datetime,
 )
 
 FANDANGO_ORIGIN = "https://www.fandango.com"
@@ -109,6 +110,13 @@ class ProviderMovie(BaseModel):
     title: str
     variants: list[MovieVariant] = Field(default_factory=list)
 
+    @field_validator("movie_id", mode="before")
+    @classmethod
+    def normalize_movie_id(cls, value: str | int) -> str:
+        """Accept either the string or numeric identifier the provider has used."""
+
+        return str(value)
+
 
 class ShowtimeViewModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -188,10 +196,17 @@ def get_calendar_dates(theater_id: str) -> list[str] | None:
     if payload is None:
         return None
     try:
-        return CalendarPayload.model_validate(payload).showtime_dates
+        showtime_dates = CalendarPayload.model_validate(payload).showtime_dates
     except ValidationError as error:
         log_event(logging.WARNING, "provider_calendar_invalid", error_type=type(error).__name__)
         return None
+
+    if not showtime_dates:
+        # An empty calendar validates cleanly but is indistinguishable from a provider
+        # outage, and treating it as truth would erase every tracked showtime.
+        log_event(logging.WARNING, "provider_calendar_empty")
+        return None
+    return showtime_dates
 
 
 def get_matching_showtimes_for_date(
@@ -227,12 +242,17 @@ def get_matching_showtimes_for_date(
                     if showtime.ticketing_date is None or showtime.date is None:
                         skipped_incomplete += 1
                         continue
+                    try:
+                        showtime_time = provider_datetime(showtime.ticketing_date)
+                    except ValueError:
+                        skipped_incomplete += 1
+                        continue
                     records.append(
                         ShowtimeRecord(
                             movie_id=movie.movie_id,
                             title=movie.title,
                             date=date,
-                            time=showtime.date,
+                            time=showtime_time,
                             ticketing_date=showtime.ticketing_date,
                             status=showtime.status,
                             formats=format_names,

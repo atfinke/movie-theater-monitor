@@ -40,6 +40,27 @@ def test_loads_existing_camel_case_showtime_records() -> None:
     assert state.showtimes[next(iter(state.showtimes))].movie_id == "123"
 
 
+def test_converts_provider_ticketing_stamp_to_isoformat() -> None:
+    assert monitor.provider_datetime("2026-08-16+18:00") == "2026-08-16T18:00:00"
+
+
+def test_formats_alert_from_provider_ticketing_stamp() -> None:
+    record = monitor.ShowtimeRecord(
+        movie_id="246093",
+        title="Movie One",
+        date="2026-08-16",
+        time=monitor.provider_datetime("2026-08-16+18:00"),
+        ticketing_date="2026-08-16+18:00",
+        status="Available",
+        formats=["IMAX with Laser"],
+        showtime_hash_code="first",
+    )
+
+    message = monitor.format_alert("AMC Metreon 16", "IMAX", [record], "https://example.com")
+
+    assert "Sunday, August 16 at 6:00 PM" in message
+
+
 def test_groups_multiple_movies_in_one_actionable_alert() -> None:
     records = [
         monitor.ShowtimeRecord(
